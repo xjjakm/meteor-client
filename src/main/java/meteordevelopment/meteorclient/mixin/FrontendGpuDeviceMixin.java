@@ -5,16 +5,19 @@
 
 package meteordevelopment.meteorclient.mixin;
 
-import com.mojang.blaze3d.systems.GpuDevice;
-import com.mojang.blaze3d.systems.GpuDeviceBackend;
-import com.mojang.blaze3d.systems.RenderPassBackend;
+import com.mojang.renderpearl.backend.api.GpuDeviceBackend;
+import com.mojang.renderpearl.backend.api.RenderPassBackend;
+import com.mojang.renderpearl.frontend.FrontendGpuDevice;
 import meteordevelopment.meteorclient.mixininterface.IGpuDevice;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
-@Mixin(GpuDevice.class)
-public abstract class GpuDeviceMixin implements IGpuDevice {
+// Blaze3D's old monolithic GpuDevice was split in 26.3 into three layers: FrontendGpuDevice (public entry),
+// GlDevice / VulkanDevice (backend impls) selected at runtime. This mixin targets the frontend so the
+// custom scissor / render-pass hooks reach through to whichever backend is active.
+@Mixin(FrontendGpuDevice.class)
+public abstract class FrontendGpuDeviceMixin implements IGpuDevice {
     @Shadow
     @Final
     private GpuDeviceBackend backend;

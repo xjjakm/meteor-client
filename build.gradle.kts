@@ -22,14 +22,23 @@ repositories {
     maven {
         name = "meteor-maven"
         url = uri("https://maven.meteordev.org/releases")
+        content {
+            excludeGroup( "com.viaversion" )
+        }
     }
     maven {
         name = "meteor-maven-snapshots"
         url = uri("https://maven.meteordev.org/snapshots")
+        content {
+            excludeGroup( "com.viaversion" )
+        }
     }
     maven {
         name = "ViaVersion"
         url = uri("https://repo.viaversion.com")
+        content {
+            includeGroup("com.viaversion")
+        }
     }
     mavenCentral()
 

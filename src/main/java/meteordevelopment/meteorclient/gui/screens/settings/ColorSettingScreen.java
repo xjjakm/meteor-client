@@ -341,8 +341,8 @@ public class ColorSettingScreen extends WindowScreen {
 
         @Override
         protected void onRender(GuiRenderer renderer, double mouseX, double mouseY, double delta) {
-            if (height != Math.round(width)) {
-                fixedHeight = Math.round(width);
+            if (height != width) {
+                fixedHeight = width;
                 invalidate();
 
                 handleX = saturation * width;
@@ -365,12 +365,7 @@ public class ColorSettingScreen extends WindowScreen {
 
     @Override
     public boolean fromClipboard() {
-        if (NbtUtils.fromClipboard(setting.get())) {
-            // The color was deserialised onto the existing object, so Setting#set -
-            // and with it onChanged() - was never reached.
-            setting.get().validate();
-            setting.onChanged();
-        } else {
+        if (!NbtUtils.fromClipboard(setting.get())) {
             String clipboard = mc.keyboardHandler.getClipboard().trim();
             SettingColor parsed;
 
@@ -383,7 +378,7 @@ public class ColorSettingScreen extends WindowScreen {
             setting.set(parsed);
         }
 
-        callAction();
+        setting.get().validate();
 
         if (parent instanceof WidgetScreen p) {
             p.reload();

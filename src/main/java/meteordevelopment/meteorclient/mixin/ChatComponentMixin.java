@@ -94,7 +94,7 @@ public abstract class ChatComponentMixin implements IChatHud {
     }
 
     @Inject(at = @At("HEAD"), method = "addMessage", cancellable = true)
-    private void onAddMessage(Component message, MessageSignature signature, GuiMessageSource source, GuiMessageTag indicator, CallbackInfo ci, @Local(argsOnly = true, name = "contents") LocalRef<Component> contents, @Local(argsOnly = true, name = "tag") LocalRef<GuiMessageTag> tag) {
+    private void onAddMessage(Component message, MessageSignature signature, GuiMessageSource source, GuiMessageTag indicator, CallbackInfo ci, @Local(argsOnly = true) LocalRef<Component> contents, @Local(argsOnly = true) LocalRef<GuiMessageTag> tag) {
         ReceiveMessageEvent event = MeteorClient.EVENT_BUS.post(ReceiveMessageEvent.get(message, indicator, nextId));
 
         if (event.isCancelled()) ci.cancel();
@@ -134,8 +134,6 @@ public abstract class ChatComponentMixin implements IChatHud {
 
     @ModifyExpressionValue(method = "extractRenderState(Lnet/minecraft/client/gui/components/ChatComponent$ChatGraphicsAccess;IILnet/minecraft/client/gui/components/ChatComponent$DisplayMode;)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/Mth;ceil(F)I"))
     private int onRender_modifyWidth(int width) {
-        if (Modules.get() == null) return width;
-
         return getBetterChat().modifyChatWidth(width);
     }
 
@@ -163,15 +161,11 @@ public abstract class ChatComponentMixin implements IChatHud {
 
     @Inject(method = "clearMessages", at = @At("HEAD"))
     private void onClearMessages(boolean history, CallbackInfo ci) {
-        if (Modules.get() == null) return;
-
         getBetterChat().lines.clear();
     }
 
     @Inject(method = "refreshTrimmedMessages", at = @At("HEAD"))
     private void onRefreshTrimmedMessages(CallbackInfo ci) {
-        if (Modules.get() == null) return;
-
         getBetterChat().lines.clear();
     }
 

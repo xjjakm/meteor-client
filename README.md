@@ -17,6 +17,17 @@
     <img src="https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/MeteorDevelopment/meteor-client/badge?filter=.java$&label=lines%20of%20code&color=blue" alt="GitHub lines of code"/>
 </div>
 
+### update-26.3 branch note
+
+This branch greatly references code from https://github.com/robotum1/meteor-client — most of the bulk blaze3d → renderpearl migration was done by @robotum1. Additional work on top of that:
+
+- Cleaned up shader files: removed all `.frag` / `.vert` leftovers, `.fsh` / `.vsh` is now the only convention renderpearl resolves
+- Fixed `SodiumDefaultFluidRendererMixin` runtime failures: `@Local` no longer captures the neighbor state (now queried inline) and the 4-param `isFluidSideExposed` got inlined by Sodium 0.9.2, so retargeted to the 5-param public entrypoint
+- Fixed `TitleScreenMixin` NPE during `Minecraft.<init>` — `GameRenderer.extract()` runs before `Config` is constructed; added null guards
+- Fixed baritone preLaunch crash when `ComeCommandMixin` has `"required": true` on Fabric Loom 26.3 (remapping timing) — changed to `"required": false` + present check in `MixinPlugin`
+- Temporarily removed `MeshVertexConsumerMixin` — Sodium 0.9.2 for 26.3 does not yet expose injectable targets after renderpearl adoption
+- Updated access widener (`blaze3d.opengl` → `renderpearl.backend.opengl`, removed dead `RenderSetup.outputTarget`, added `LayerRenderState.quads`)
+
 ## Usage
 
 ### Building

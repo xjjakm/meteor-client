@@ -6,11 +6,13 @@
 package meteordevelopment.meteorclient.mixin;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.resource.GraphicsResourceAllocator;
 import com.mojang.blaze3d.resource.ResourceHandle;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import it.unimi.dsi.fastutil.Stack;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import meteordevelopment.meteorclient.mixininterface.IEntityRenderState;
@@ -23,7 +25,6 @@ import meteordevelopment.meteorclient.utils.OutlineRenderCommandQueue;
 import meteordevelopment.meteorclient.utils.render.color.Color;
 import meteordevelopment.meteorclient.utils.render.postprocess.EntityShader;
 import meteordevelopment.meteorclient.utils.render.postprocess.PostProcessShaders;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.LevelTargetBundle;
 import net.minecraft.client.renderer.RenderBuffers;
@@ -33,18 +34,16 @@ import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.LevelRenderState;
 import net.minecraft.world.entity.Entity;
-import org.joml.Matrix4fc;
 import org.joml.Vector4f;
+import org.joml.Vector4fc;
 import org.objectweb.asm.Opcodes;
-import org.spongepowered.asm.mixin.Final;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Mutable;
-import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.function.Function;
 
 import static meteordevelopment.meteorclient.MeteorClient.mc;
@@ -78,7 +77,7 @@ public abstract class LevelRendererMixin implements ILevelRenderer {
     // Entity Shaders
 
     @Inject(method = "render", at = @At("HEAD"))
-    private void onRenderLevelHead(GraphicsResourceAllocator resourceAllocator, DeltaTracker deltaTracker, boolean renderOutline, CameraRenderState cameraState, Matrix4fc modelViewMatrix, GpuBufferSlice terrainFog, Vector4f fogColor, boolean shouldRenderSky, CallbackInfo ci) {
+    private void onRenderLevelHead(GraphicsResourceAllocator resourceAllocator, boolean renderOutline, CameraRenderState cameraState, GpuBufferSlice terrainFog, Vector4f fogColor, boolean shouldRenderSky, boolean consistentDepthRequired, CallbackInfo ci) {
         PostProcessShaders.beginRender();
     }
 
@@ -130,7 +129,7 @@ public abstract class LevelRendererMixin implements ILevelRenderer {
         meteor$pushEntityOutlineFramebuffer(shader.framebuffer);
         try {
             try (var frame = renderDispatcher.prepareFrame(outlineRenderCommandQueue)) {
-                frame.executeOutline();
+                meteor$executeOutline(frame);
             }
         } finally {
             outlineRenderCommandQueue.submitsPerOrder.clear();
@@ -138,7 +137,18 @@ public abstract class LevelRendererMixin implements ILevelRenderer {
         }
     }
 
-    @Inject(method = "lambda$addMainPass$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame;executeOutline()V", shift = At.Shift.AFTER))
+    // Same as executeOutline(), but without going through it, since other mods inject into it expecting to be inside the main pass
+    @Unique
+    private void meteor$executeOutline(FeatureRenderDispatcher.PreparedFrame frame) {
+        if (!currentFrameRendersEntityOutline) return;
+
+        try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(() -> "Meteor entity outline", entityOutlineTarget.getColorTextureView(), Optional.of(ZERO_CLEAR_COLOR), null, OptionalDouble.empty())) {
+            RenderSystem.bindDefaultUniforms(pass);
+            frame.executeOutline(pass);
+        }
+    }
+
+    @Inject(method = "lambda$addMainPass$0", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/LevelRenderer;executeOutline(Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame;)V", shift = At.Shift.AFTER))
     private void addMainPass$submitEntityVertices(CallbackInfo ci) {
         PostProcessShaders.submitEntityVertices();
     }
@@ -165,6 +175,14 @@ public abstract class LevelRendererMixin implements ILevelRenderer {
     @Shadow
     @Final
     private RenderBuffers renderBuffers;
+
+    @Shadow
+    private boolean currentFrameRendersEntityOutline;
+
+    @Shadow
+    @Final
+    private static Vector4fc ZERO_CLEAR_COLOR;
+
     @Unique
     private Stack<RenderTarget> framebufferStack;
 

@@ -13,11 +13,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 public class Keybind implements ISerializable<Keybind>, ICopyable<Keybind> {
     public enum Modifier {
@@ -40,7 +36,7 @@ public class Keybind implements ISerializable<Keybind>, ICopyable<Keybind> {
         public boolean isKeyPressed() {
             return switch (this) {
                 case CONTROL -> Input.isKeyPressed(InputConstants.KEY_LCONTROL) || Input.isKeyPressed(InputConstants.KEY_RCONTROL);
-                case SUPER -> Input.isKeyPressed(InputConstants.KEY_LSUPER) || Input.isKeyPressed(InputConstants.KEY_RSUPER);
+                case SUPER -> false; // Input.isKeyPressed(InputConstants.KEY_LSUPER) || Input.isKeyPressed(InputConstants.KEY_RSUPER); todo figure out which key is super - maybe RGUI/LGUI?
                 case ALT -> Input.isKeyPressed(InputConstants.KEY_LALT) || Input.isKeyPressed(InputConstants.KEY_RALT);
                 case SHIFT -> Input.isKeyPressed(InputConstants.KEY_LSHIFT) || Input.isKeyPressed(InputConstants.KEY_RSHIFT);
                 case CAPS_LOCK -> Input.isKeyPressed(InputConstants.KEY_CAPSLOCK);
@@ -149,8 +145,7 @@ public class Keybind implements ISerializable<Keybind>, ICopyable<Keybind> {
 
     public boolean matches(InputConstants.Key key, Set<Modifier> modifiers) {
         if (!isSet() || !this.key.equals(key)) return false;
-        if (!hasMods()) return modifiers.stream().noneMatch(m -> m == Modifier.SHIFT || m == Modifier.CONTROL || m == Modifier.ALT || m == Modifier.SUPER);
-        return this.modifiers.equals(modifiers);
+        return !hasMods() || this.modifiers.equals(modifiers);
     }
 
     public boolean matches(boolean isKey, int value, int modifiers) {
@@ -182,7 +177,7 @@ public class Keybind implements ISerializable<Keybind>, ICopyable<Keybind> {
     }
 
     private boolean isKeyMod(InputConstants.Key key) {
-        return key.getValue() >= InputConstants.KEY_LSHIFT && key.getValue() <= InputConstants.KEY_RSUPER;
+        return key.getValue() >= InputConstants.KEY_LCONTROL && key.getValue() <= InputConstants.KEY_RGUI;
     }
 
     @Override
@@ -256,19 +251,107 @@ public class Keybind implements ISerializable<Keybind>, ICopyable<Keybind> {
                 } catch (IllegalArgumentException ignored) {}
             }
         } else {
-            // Legacy format: raw ints (GLFW)
+            // Legacy format: raw GLFW key codes, mouse buttons and modifier bits.
+            // Input is SDL based now, so translate them through the key names, which stayed the same.
             boolean isKey = tag.getBooleanOr("isKey", true);
-            int value = tag.getIntOr("value", InputConstants.UNKNOWN.getValue());
+            int value = tag.getIntOr("value", -1);
             int mods = tag.getIntOr("modifiers", 0);
 
-            set(isKey ? keyboard(value) : mouse(value), isKey ? Modifier.fromRawValue(mods) : Set.of());
+            set(isKey ? legacyKeyboard(value) : legacyMouse(value), isKey ? legacyModifiers(mods) : Set.of());
         }
 
         return this;
     }
 
+    private static InputConstants.Key legacyKeyboard(int glfwKey) {
+        String name = switch (glfwKey) {
+            case 32 -> "space";
+            case 39 -> "apostrophe";
+            case 44 -> "comma";
+            case 45 -> "minus";
+            case 46 -> "period";
+            case 47 -> "slash";
+            case 59 -> "semicolon";
+            case 61 -> "equal";
+            case 91 -> "left.bracket";
+            case 92 -> "backslash";
+            case 93 -> "right.bracket";
+            case 96 -> "grave.accent";
+            case 161 -> "world.1";
+            case 162 -> "world.2";
+            case 256 -> "escape";
+            case 257 -> "enter";
+            case 258 -> "tab";
+            case 259 -> "backspace";
+            case 260 -> "insert";
+            case 261 -> "delete";
+            case 262 -> "right";
+            case 263 -> "left";
+            case 264 -> "down";
+            case 265 -> "up";
+            case 266 -> "page.up";
+            case 267 -> "page.down";
+            case 268 -> "home";
+            case 269 -> "end";
+            case 280 -> "caps.lock";
+            case 281 -> "scroll.lock";
+            case 282 -> "num.lock";
+            case 283 -> "print.screen";
+            case 284 -> "pause";
+            case 330 -> "keypad.decimal";
+            case 331 -> "keypad.divide";
+            case 332 -> "keypad.multiply";
+            case 333 -> "keypad.subtract";
+            case 334 -> "keypad.add";
+            case 335 -> "keypad.enter";
+            case 336 -> "keypad.equal";
+            case 340 -> "left.shift";
+            case 341 -> "left.control";
+            case 342 -> "left.alt";
+            case 343 -> "left.win";
+            case 344 -> "right.shift";
+            case 345 -> "right.control";
+            case 346 -> "right.alt";
+            case 347 -> "right.win";
+            case 348 -> "menu";
+            default -> {
+                if (glfwKey >= 48 && glfwKey <= 57) yield String.valueOf((char) glfwKey); // 0-9
+                if (glfwKey >= 65 && glfwKey <= 90) yield String.valueOf((char) (glfwKey + 32)); // a-z
+                if (glfwKey >= 290 && glfwKey <= 313) yield "f" + (glfwKey - 289); // F1-F24
+                if (glfwKey >= 320 && glfwKey <= 329) yield "keypad." + (glfwKey - 320); // keypad 0-9
+                yield null;
+            }
+        };
+
+        return name == null ? InputConstants.UNKNOWN : InputConstants.getKey("key.keyboard." + name);
+    }
+
+    private static InputConstants.Key legacyMouse(int glfwButton) {
+        String name = switch (glfwButton) {
+            case 0 -> "left";
+            case 1 -> "right";
+            case 2 -> "middle";
+            default -> String.valueOf(glfwButton + 1);
+        };
+
+        return glfwButton < 0 ? InputConstants.UNKNOWN : InputConstants.getKey("key.mouse." + name);
+    }
+
+    private static Set<Modifier> legacyModifiers(int glfwMods) {
+        Set<Modifier> result = EnumSet.noneOf(Modifier.class);
+
+        if ((glfwMods & 0x01) != 0) result.add(Modifier.SHIFT);
+        if ((glfwMods & 0x02) != 0) result.add(Modifier.CONTROL);
+        if ((glfwMods & 0x04) != 0) result.add(Modifier.ALT);
+        if ((glfwMods & 0x08) != 0) result.add(Modifier.SUPER);
+        if ((glfwMods & 0x10) != 0) result.add(Modifier.CAPS_LOCK);
+        if ((glfwMods & 0x20) != 0) result.add(Modifier.NUM_LOCK);
+
+        return result;
+    }
+
     private static InputConstants.Key keyboard(int key) {
-        return InputConstants.Type.KEYSYM.getOrCreate(key);
+        return InputConstants.Type.KEYBOARD.getOrCreate(key);
     }
 
     private static InputConstants.Key mouse(int button) {

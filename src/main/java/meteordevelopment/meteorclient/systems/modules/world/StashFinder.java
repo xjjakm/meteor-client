@@ -45,17 +45,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.*;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.lang3.StringUtils;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.*;
 import java.util.*;
-import java.util.function.ObjIntConsumer;
-import java.util.function.ToIntFunction;
-import java.util.stream.Collectors;
 
 public class StashFinder extends Module {
     private final SettingGroup sgGeneral = settings.getDefaultGroup();
@@ -179,25 +171,6 @@ public class StashFinder extends Module {
     );
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-
-    private record CsvField(String name, ToIntFunction<Chunk> getter, ObjIntConsumer<Chunk> setter) {
-        public CsvField(String name, ToIntFunction<Chunk> getter) {
-            this(name, getter, null);
-        }
-    }
-
-    private static final List<CsvField> CSV_FIELDS = List.of(
-        new CsvField("x", c -> c.chunkPos.x()),
-        new CsvField("z", c -> c.chunkPos.z()),
-        new CsvField("chests", c -> c.chests, (c, v) -> c.chests = v),
-        new CsvField("barrels", c -> c.barrels, (c, v) -> c.barrels = v),
-        new CsvField("shulkers", c -> c.shulkers, (c, v) -> c.shulkers = v),
-        new CsvField("enderChests", c -> c.enderChests, (c, v) -> c.enderChests = v),
-        new CsvField("furnaces", c -> c.furnaces, (c, v) -> c.furnaces = v),
-        new CsvField("dispensersDroppers", c -> c.dispensersDroppers, (c, v) -> c.dispensersDroppers = v),
-        new CsvField("hoppers", c -> c.hoppers, (c, v) -> c.hoppers = v)
-    );
-
     private final Map<ChunkPos, Vec3> tracerPositions = new HashMap<>();
     public List<Chunk> chunks = new ArrayList<>();
 
@@ -244,7 +217,6 @@ public class StashFinder extends Module {
                 case DispenserBlockEntity _ -> chunk.dispensersDroppers++;
                 case HopperBlockEntity _ -> chunk.hoppers++;
                 default -> {
-                    // Do not track other block entities
                 }
             }
         }
@@ -258,7 +230,7 @@ public class StashFinder extends Module {
 
             if (renderTracer.get()) {
                 double y = mc.player != null ? mc.player.getEyeY() : 0.0;
-                tracerPositions.put(chunk.chunkPos, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
+                tracerPositions.put(chunk.chunkPos, new Vec3(chunk.x, y, chunk.z));
             }
 
             saveJson();
@@ -318,14 +290,14 @@ public class StashFinder extends Module {
 
     private void fillTable(GuiTheme theme, WTable table) {
         for (Chunk chunk : chunks) {
-            table.add(theme.label("Pos: " + chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ())).padRight(10);
+            table.add(theme.label("Pos: " + chunk.x + ", " + chunk.z)).padRight(10);
             table.add(theme.label("Total: " + chunk.getTotal())).padRight(10);
 
             WCheckbox visible = table.add(theme.checkbox(tracerPositions.containsKey(chunk.chunkPos))).widget();
             visible.action = () -> {
                 if (visible.checked) {
                     double y = mc.player != null ? mc.player.getEyeY() : 0.0;
-                    tracerPositions.put(chunk.chunkPos, new Vec3(chunk.chunkPos.getMiddleBlockX(), y, chunk.chunkPos.getMiddleBlockZ()));
+                    tracerPositions.put(chunk.chunkPos, new Vec3(chunk.x, y, chunk.z));
                 } else tracerPositions.remove(chunk.chunkPos);
             };
 
@@ -333,7 +305,7 @@ public class StashFinder extends Module {
             open.action = () -> mc.gui.setScreen(new ChunkScreen(theme, chunk));
 
             WButton gotoBtn = table.add(theme.button("Goto")).widget();
-            gotoBtn.action = () -> PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true);
+            gotoBtn.action = () -> PathManagers.get().moveTo(new BlockPos(chunk.x, 0, chunk.z), true);
 
             WMinus delete = table.add(theme.minus()).widget();
             delete.action = () -> {
@@ -355,11 +327,16 @@ public class StashFinder extends Module {
         boolean loaded = false;
 
         // Try to load json
-        Path jsonFile = getJsonFile();
-        if (Files.exists(jsonFile)) {
-            try (BufferedReader reader = Files.newBufferedReader(jsonFile)) {
+        File file = getJsonFile();
+        if (file.exists()) {
+            try {
+                FileReader reader = new FileReader(file);
                 chunks = GSON.fromJson(reader, new TypeToken<List<Chunk>>() {
                 }.getType());
+                reader.close();
+
+                for (Chunk chunk : chunks) chunk.calculatePos();
+
                 loaded = true;
             } catch (Exception _) {
                 if (chunks == null) chunks = new ArrayList<>();
@@ -367,26 +344,28 @@ public class StashFinder extends Module {
         }
 
         // Try to load csv
-        Path csvFile = getCsvFile();
-        if (!loaded && Files.exists(csvFile)) {
-            try (BufferedReader reader = Files.newBufferedReader(csvFile)) {
-                reader.readLine(); // Skip header
+        file = getCsvFile();
+        if (!loaded && file.exists()) {
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(file));
+                reader.readLine();
 
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    String[] values = StringUtils.split(line, ',');
-                    if (values.length != CSV_FIELDS.size()) {
-                        throw new IllegalStateException("Invalid CSV row length: expected " + CSV_FIELDS.size() + ", got " + values.length);
-                    }
-
+                    String[] values = line.split(" ");
                     Chunk chunk = new Chunk(new ChunkPos(Integer.parseInt(values[0]), Integer.parseInt(values[1])));
 
-                    for (int i = 2; i < CSV_FIELDS.size(); i++) {
-                        CSV_FIELDS.get(i).setter().accept(chunk, Integer.parseInt(values[i]));
-                    }
+                    chunk.chests = Integer.parseInt(values[2]);
+                    chunk.shulkers = Integer.parseInt(values[3]);
+                    chunk.enderChests = Integer.parseInt(values[4]);
+                    chunk.furnaces = Integer.parseInt(values[5]);
+                    chunk.dispensersDroppers = Integer.parseInt(values[6]);
+                    chunk.hoppers = Integer.parseInt(values[7]);
 
                     chunks.add(chunk);
                 }
+
+                reader.close();
             } catch (Exception _) {
                 if (chunks == null) chunks = new ArrayList<>();
             }
@@ -395,18 +374,14 @@ public class StashFinder extends Module {
 
     private void saveCsv() {
         try {
-            Path csvFile = getCsvFile();
-            Files.createDirectories(csvFile.getParent());
-            try (BufferedWriter writer = Files.newBufferedWriter(csvFile)) {
-                String header = CSV_FIELDS.stream()
-                    .map(CsvField::name)
-                    .collect(Collectors.joining(","));
-                writer.write(header);
-                writer.newLine();
-                for (Chunk chunk : chunks) {
-                    chunk.write(writer);
-                }
-            }
+            File file = getCsvFile();
+            file.getParentFile().mkdirs();
+            Writer writer = new FileWriter(file);
+
+            writer.write("X,Z,Chests,Barrels,Shulkers,EnderChests,Furnaces,DispensersDroppers,Hoppers\n");
+            for (Chunk chunk : chunks) chunk.write(writer);
+
+            writer.close();
         } catch (IOException e) {
             MeteorClient.LOG.error("Error while writing the stash list to csv", e);
         }
@@ -414,22 +389,22 @@ public class StashFinder extends Module {
 
     private void saveJson() {
         try {
-            Path jsonFile = getJsonFile();
-            Files.createDirectories(jsonFile.getParent());
-            try (BufferedWriter writer = Files.newBufferedWriter(jsonFile)) {
-                GSON.toJson(chunks, writer);
-            }
+            File file = getJsonFile();
+            file.getParentFile().mkdirs();
+            Writer writer = new FileWriter(file);
+            GSON.toJson(chunks, writer);
+            writer.close();
         } catch (IOException e) {
             MeteorClient.LOG.error("Error while writing the stash list to json", e);
         }
     }
 
-    private Path getJsonFile() {
-        return Path.of(MeteorClient.FOLDER.getPath(), "stashes", Utils.getFileWorldName(), "stashes.json");
+    private File getJsonFile() {
+        return new File(new File(new File(MeteorClient.FOLDER, "stashes"), Utils.getFileWorldName()), "stashes.json");
     }
 
-    private Path getCsvFile() {
-        return Path.of(MeteorClient.FOLDER.getPath(), "stashes", Utils.getFileWorldName(), "stashes.csv");
+    private File getCsvFile() {
+        return new File(new File(new File(MeteorClient.FOLDER, "stashes"), Utils.getFileWorldName()), "stashes.csv");
     }
 
     @Override
@@ -438,12 +413,12 @@ public class StashFinder extends Module {
     }
 
     private void sendChatNotification(Chunk chunk) {
-        MutableComponent coords = Component.literal(chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ())
+        MutableComponent coords = Component.literal(chunk.x + ", " + chunk.z)
             .setStyle(Style.EMPTY
                 .withColor(ChatFormatting.WHITE)
                 .applyFormat(ChatFormatting.UNDERLINE)
                 .withHoverEvent(new HoverEvent.ShowText(Component.literal("Path to stash")))
-                .withClickEvent(new RunnableClickEvent(() -> PathManagers.get().moveTo(new BlockPos(chunk.chunkPos.getMiddleBlockX(), 0, chunk.chunkPos.getMiddleBlockZ()), true))));
+                .withClickEvent(new RunnableClickEvent(() -> PathManagers.get().moveTo(new BlockPos(chunk.x, 0, chunk.z), true))));
 
         MutableComponent message = Component.literal("Found stash at ")
             .withStyle(ChatFormatting.GRAY)
@@ -504,28 +479,37 @@ public class StashFinder extends Module {
     }
 
     public static class Chunk {
-        public final ChunkPos chunkPos;
+        private static final StringBuilder sb = new StringBuilder();
+
+        public ChunkPos chunkPos;
+        public transient int x, z;
         public int chests, barrels, shulkers, enderChests, furnaces, dispensersDroppers, hoppers;
 
         public Chunk(ChunkPos chunkPos) {
             this.chunkPos = chunkPos;
+
+            calculatePos();
+        }
+
+        public void calculatePos() {
+            x = chunkPos.x() * 16 + 8;
+            z = chunkPos.z() * 16 + 8;
         }
 
         public int getTotal() {
             return chests + barrels + shulkers + enderChests + furnaces + dispensersDroppers + hoppers;
         }
 
-        public void write(BufferedWriter writer) throws IOException {
-            String line = CSV_FIELDS.stream()
-                .map(field -> String.valueOf(field.getter().applyAsInt(this)))
-                .collect(Collectors.joining(","));
-            writer.write(line);
-            writer.newLine();
+        public void write(Writer writer) throws IOException {
+            sb.setLength(0);
+            sb.append(x).append(',').append(z).append(',');
+            sb.append(chests).append(',').append(barrels).append(',').append(shulkers).append(',').append(enderChests).append(',').append(furnaces).append(',').append(dispensersDroppers).append(',').append(hoppers).append('\n');
+            writer.write(sb.toString());
         }
 
         public boolean countsEqual(Chunk c) {
             if (c == null) return false;
-            return chests == c.chests && barrels == c.barrels && shulkers == c.shulkers && enderChests == c.enderChests && furnaces == c.furnaces && dispensersDroppers == c.dispensersDroppers && hoppers == c.hoppers;
+            return chests != c.chests || barrels != c.barrels || shulkers != c.shulkers || enderChests != c.enderChests || furnaces != c.furnaces || dispensersDroppers != c.dispensersDroppers || hoppers != c.hoppers;
         }
 
         @Override
@@ -546,7 +530,7 @@ public class StashFinder extends Module {
         private final Chunk chunk;
 
         public ChunkScreen(GuiTheme theme, Chunk chunk) {
-            super(theme, "Chunk at " + chunk.chunkPos.getMiddleBlockX() + ", " + chunk.chunkPos.getMiddleBlockZ());
+            super(theme, "Chunk at " + chunk.x + ", " + chunk.z);
 
             this.chunk = chunk;
         }

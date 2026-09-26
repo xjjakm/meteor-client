@@ -24,7 +24,13 @@ public class MixinPlugin implements IMixinConfigPlugin {
     private static boolean isLithiumPresent;
     public static boolean isIrisPresent;
     private static boolean isVFPPresent;
+    private static boolean isBaritonePresent;
 
+    // Baritone's ComeCommandMixin targets the concrete class baritone.command.defaults.ComeCommand.
+    // On Fabric Loom for 26.3, intermediary → named remapping of optional dependencies has not yet
+    // completed when mixins run during preLaunch, so a blind "required" mixin crashes. We guard the
+    // injection behind FabricLoader.isModLoaded("baritone") so the mixin only applies once baritone
+    // is actually present and remapped.
     @Override
     public void onLoad(String mixinPackage) {
         if (loaded) return;
@@ -35,6 +41,7 @@ public class MixinPlugin implements IMixinConfigPlugin {
         isLithiumPresent = FabricLoader.getInstance().isModLoaded("lithium");
         isIrisPresent = FabricLoader.getInstance().isModLoaded("iris");
         isVFPPresent = FabricLoader.getInstance().isModLoaded("viafabricplus");
+        isBaritonePresent = FabricLoader.getInstance().isModLoaded("baritone");
 
         loaded = true;
     }
@@ -58,6 +65,8 @@ public class MixinPlugin implements IMixinConfigPlugin {
             return isLithiumPresent;
         } else if (mixinClassName.startsWith(mixinPackage + ".viafabricplus")) {
             return isVFPPresent;
+        } else if (mixinClassName.startsWith(mixinPackage + ".baritone")) {
+            return isBaritonePresent;
         }
 
 
